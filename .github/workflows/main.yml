@@ -1,0 +1,78 @@
+name: Build and Deploy DACPAC
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+
+  # ------------------------
+  # BUILD JOB
+  # ------------------------
+  build:
+    runs-on: ubuntu-latest
+
+    outputs:
+      dacpac-path: ${{ steps.build.outputs.dacpac-path }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+
+
+      - name: Build SQL Project
+        id: build
+        run: |
+          dotnet build Database/Database.sqlproj --configuration Release
+          echo "dacpac-path=Database/bin/Release/Database.dacpac" >> $GITHUB_OUTPUT
+
+      - name: Upload DACPAC artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dacpac
+          path: Database/bin/Release/Database.dacpac
+
+
+
+  # ------------------------
+  # DEPLOY JOB
+  # ------------------------
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+
+
+
+
+      - name: Download DACPAC artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dacpac
+
+      - name: Install SqlPackage
+        run: |
+          dotnet tool install --global Microsoft.SqlPackage
+
+      - name: Add SqlPackage to PATH
+        run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Deploy DACPAC to SQL
+        run: |
+          sqlpackage \
+            /Action:Publish \
+            /SourceFile:Database.dacpac \
+            /TargetServerName:"${{ secrets.SQL_SERVER }}" \
+            /TargetDatabaseName:"${{ secrets.SQL_DATABASE }}" \
+            /TargetUser:"${{ secrets.SQL_USER }}" \
+            /TargetPassword:"${{ secrets.SQL_PASSWORD }}" \
+            /p:BlockOnPossibleDataLoss=True \
+            /p:DropObjectsNotInSource=False
